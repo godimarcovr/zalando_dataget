@@ -49,7 +49,7 @@ class ZalandoDownloader:
         result = req.get(comp, headers=self.header)
         return result.json()
 
-    def get_paired_ids(self, shopurl):
+    def get_paired_ids(self, shopurl, timeout_secs=45):
         toret = []
         links = []
         #try:
@@ -61,8 +61,9 @@ class ZalandoDownloader:
         #self.driver = webdriver.PhantomJS()
         #print("...created, get page...("+shopurl+")")
         #self.driver.get(shopurl)
-        self.driver = get_page(shopurl, 3, 45)
+        self.driver = get_page(shopurl, 3, timeout_secs)
         if self.driver is None:
+            print("... unable to get ("+shopurl+")")
             return toret
         print("... got it!("+shopurl+")")
         actcha = ActionChains(self.driver)

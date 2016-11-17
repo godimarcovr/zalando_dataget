@@ -1,4 +1,6 @@
 from zalando_downloader import *
+from queue import Queue, Empty
+import random
 
 class ZalandoDataset:
 
@@ -6,7 +8,7 @@ class ZalandoDataset:
                  , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl", "pairings"]
                  , mode="w"):
         self.dataset = {}
-        assert(columns[0] == "id")
+        assert columns[0] == "id"
         self.colnames = columns
         self.csvfile = csvfile
         if mode == "r" or mode == "a":
@@ -57,8 +59,10 @@ class ZalandoDataset:
                         for col in self.colnames:
                             if col == "largeHdUrl":
                                 images = article['media']["images"]
+                                self.dataset[article["id"]][col] = ""
                                 for image in images:
-                                    if image["orderNumber"] == 1 and image['type'] == "NON_MODEL":
+                                    #if image["orderNumber"] == 1 and image['type'] == "NON_MODEL":
+                                    if image["orderNumber"] == 1:
                                         self.dataset[article["id"]][col] = image[col]
                                         break
                             elif col == "pairings":
@@ -104,36 +108,93 @@ class ZalandoDataset:
             parameters.append(("articleId", art_id))
         self.add_articles_to_dataset(parameters, page_limit=-1)
 
-    def get_missing_pairings(self):
-        #add howMany per salvare a pezzi
+    def get_missing_pairings(self, lim=float('inf'), num_threads=1):
         #threads
         assert "pairings" in self.colnames and "shopUrl" in self.colnames
+        count = 0
+        urlqueue = []
         for art_id, attributes in self.dataset.items():
             pairings = attributes["pairings"]
             if len(pairings) == 0:
                 shopurl = attributes["shopUrl"]
                 self.dataset[art_id]["pairings"] = []
-                zaldown = ZalandoDownloader()
-                recoss = zaldown.get_recos([shopurl])
-                for recos in recoss:
-                    self.dataset[art_id]["pairings"].extend(recos)
+                urlqueue.append((art_id, shopurl))
+                #zaldown = ZalandoDownloader()
+                #recoss = zaldown.get_recos([shopurl])
+                #for recos in recoss:
+                #    self.dataset[art_id]["pairings"].extend(recos)
+                count += 1
 
+        if lim < float('inf'):
+            urlsample = [urlqueue[i] for i in random.sample(range(len(urlqueue)), lim)]
+        else:
+            urlsample = urlqueue[:]
+
+        urlqueue = Queue()
+        for url in urlsample:
+            urlqueue.put(url)
+            count = len(urlsample)
+
+        threads = []
+        for i in range(num_threads):
+            thr = ScrapeThread(urlqueue)
+            thr.start()
+            threads.append(thr)
+
+        pairings = []
+        for i in threads:
+            i.join()
+            pairings.extend(i.result)
+
+        for art_id, pairs in pairings:
+            #zaldown = ZalandoDownloader()
+            #recoss = zaldown.get_recos([shopurl])
+            #for recos in recoss:
+            #    self.dataset[art_id]["pairings"].extend(recos)
+            self.dataset[art_id]["pairings"] = pairs
+        return count
+
+
+class ScrapeThread(threading.Thread):
+    def __init__(self, urlqueue):
+        threading.Thread.__init__(self)
+        self.urlqueue = urlqueue
+        self.result = []
+
+    def run(self):
+        while not self.urlqueue.empty():
+            try:
+                art_id, url = self.urlqueue.get(block=False)
+            except Empty:
+                break
+            self.urlqueue.task_done()
+            zaldown = ZalandoDownloader()
+            recoss = zaldown.get_recos([url])
+            assert len(recoss) <= 1
+            for recos in recoss:
+                self.result.append((art_id, recos))
+            #metterci print di fine raccolta con numero thread
 
 if __name__ == "__main__":
-    ZALDATA = ZalandoDataset()
+    ZALDATA = ZalandoDataset(csvfile="felpe_tshirt.csv")
     PARAMETERS = []
     #CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
     #        , "premium-maglieria-felpe-donna"
     #        , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
-    CATS = ["promo-pullover-cardigan-donna"]
-    for cat in CATS:
-        PARAMETERS.append(("category", cat))
     PARAMETERS.append(("sort", "popularity"))
-    PARAMETERS.append(("pageSize", "3"))
-    ZALDATA.add_articles_to_dataset(PARAMETERS, page_limit=1)
-    ZALDATA.get_missing_pairings()
-    #ZALDATA.fill_pairings()
+    #PARAMETERS.append(("pageSize", "1"))
+    CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
+            , "premium-maglieria-felpe-donna"
+            , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
+    for cat in CATS:
+        PARAMETERS2 = []
+        PARAMETERS2.extend(PARAMETERS)
+        PARAMETERS2.append(("category", cat))
+        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=1)
+    ZALDATA.get_missing_pairings(num_threads=4)
+    ZALDATA.save_to_csv()
+    ZALDATA.fill_pairings()
     #ZALDATA.get_missing_pairings()
     ZALDATA.save_to_csv()
-    ZALDATA = ZalandoDataset(mode="r")
+    ZALDATA = ZalandoDataset(csvfile="felpe_tshirt.csv", mode="r")
     
