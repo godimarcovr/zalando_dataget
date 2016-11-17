@@ -1,13 +1,10 @@
-import requests as req
-from urllib import request as imgget
-from bs4 import BeautifulSoup
-from selenium import webdriver
-import os
-#from recotest import *
 from urllib.parse import urlparse
-from selenium.webdriver.common.keys import Keys
+import requests as req
+from selenium import webdriver
+#from recotest import *
+#from selenium.webdriver.common.keys import Keys
 from selenium.webdriver import ActionChains
-from selenium.webdriver import DesiredCapabilities
+#from selenium.webdriver import DesiredCapabilities
 import threading
 from timeoutcontext import timeout
 from selenium.common.exceptions import TimeoutException
@@ -93,7 +90,13 @@ class ZalandoDownloader:
                     for link in links:
                         purl = urlparse(link.get_attribute('href'))
                         lista = purl.path.split(sep="-")
-                        toret.append((lista[-2]+"-"+lista[-1].split(sep=".")[0]).upper())
+                        #dovrebbero essere sempre lunghi 13 gli id!
+                        if len(lista[-2]+"-"+lista[-1].split(sep=".")[0]) < 13:
+                            print("Errore in uno degli id trovati!")
+                            print(link.get_attribute('href'))
+                            print(lista[-2]+"-"+lista[-1].split(sep=".")[0])
+                        else:
+                            toret.append((lista[-2]+"-"+lista[-1].split(sep=".")[0]).upper())
                 else:
                     attempts -= 1
                     actcha.move_to_element(sliders[1])

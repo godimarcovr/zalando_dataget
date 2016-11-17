@@ -1,20 +1,25 @@
 from zalando_downloader import *
 from queue import Queue, Empty
 import random
+import os
+import urllib.request
 
 class ZalandoDataset:
 
-    def __init__(self, csvfile="default.csv"
+    def __init__(self, datasetpath="default"
                  , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl", "pairings"]
                  , mode="w"):
         self.dataset = {}
         assert columns[0] == "id"
         self.colnames = columns
-        self.csvfile = csvfile
+        self.datasetpath = datasetpath
+        self.datasetname = os.path.basename(os.path.normpath(self.datasetpath))
+        if not os.path.exists(self.datasetpath):
+            os.makedirs(datasetpath)
         if mode == "r" or mode == "a":
-            self.load_input(csvfile)
+            self.load_input(self.datasetpath+"/"+self.datasetname+".csv")
         elif mode == "w":
-            fout = open(csvfile, "w")
+            fout = open(self.datasetpath+"/"+self.datasetname+".csv", "w")
             fout.close()
 
     def load_input(self, inf):
@@ -41,7 +46,28 @@ class ZalandoDataset:
         zaldown = ZalandoDownloader()
         zaldown.parameters = parameters
         zaldown.section = "articles"
+        assert len(parameters) < 150
+        '''
+        #per evitare errori per il link troppo lungo, spezzo in più richieste
+        #per ora evito stando attento a come lo uso
+        non_articleid_params = []
+        articleid_params = []
+        pagesize = 20
+        for param in zaldown.parameters:
+            if param[0] == "articleId":
+                articleid_params.append(param)
+            else:
+                non_articleid_params.append(param)
+                if param[0] == "pageSize":
+                    pagesize = int(param[1])
+        articles_to_elab = pagesize * page_limit
+        '''
         res = zaldown.get_json()
+        if "errors" in res:
+            print("Errore nel JSON")
+            print(zaldown.parameters)
+            print(res)
+            return
         if page_limit == -1:
             num_pages = res['totalPages']
         else:
@@ -75,7 +101,7 @@ class ZalandoDataset:
                             elif col != "id":
                                 self.dataset[article["id"]][col] = article[col]
     def save_to_csv(self):
-        fout = open(self.csvfile, "w")
+        fout = open(self.datasetpath+"/"+self.datasetname+".csv", "w")
         for art_id, attributes in self.dataset.items():
             to_write = art_id
             for i in range(1, len(self.colnames)):
@@ -104,8 +130,14 @@ class ZalandoDataset:
             art_ids.extend(pairings)
         art_ids = list(set(art_ids))
         parameters = []
+        count = 0
         for art_id in art_ids:
             parameters.append(("articleId", art_id))
+            count += 1
+            if count >= 50:
+                self.add_articles_to_dataset(parameters, page_limit=-1)
+                count = 0
+                parameters = []
         self.add_articles_to_dataset(parameters, page_limit=-1)
 
     def get_missing_pairings(self, lim=float('inf'), num_threads=1):
@@ -154,6 +186,14 @@ class ZalandoDataset:
             self.dataset[art_id]["pairings"] = pairs
         return count
 
+    def download_images(self):
+        for art_id, attributes in self.dataset.items():
+            if not os.path.exists(self.datasetpath+"/"+art_id+".jpg"):
+                print("Downloading "+art_id+".jpg....")
+                urllib.request.urlretrieve(attributes['largeHdUrl']
+                                           , filename=self.datasetpath+"/"+art_id+".jpg")
+                print("Downloaded "+art_id+".jpg....")
+
 
 class ScrapeThread(threading.Thread):
     def __init__(self, urlqueue):
@@ -165,6 +205,7 @@ class ScrapeThread(threading.Thread):
         while not self.urlqueue.empty():
             try:
                 art_id, url = self.urlqueue.get(block=False)
+                print("Rimasti in coda: "+str(self.urlqueue.qsize()))
             except Empty:
                 break
             self.urlqueue.task_done()
@@ -176,12 +217,12 @@ class ScrapeThread(threading.Thread):
             #metterci print di fine raccolta con numero thread
 
 if __name__ == "__main__":
-    ZALDATA = ZalandoDataset(csvfile="felpe_tshirt.csv")
+    ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt")
     PARAMETERS = []
     #CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
     #        , "premium-maglieria-felpe-donna"
     #        , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
-    PARAMETERS.append(("sort", "popularity"))
+    #PARAMETERS.append(("sort", "popularity"))
     #PARAMETERS.append(("pageSize", "1"))
     CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
             , "premium-maglieria-felpe-donna"
@@ -190,11 +231,11 @@ if __name__ == "__main__":
         PARAMETERS2 = []
         PARAMETERS2.extend(PARAMETERS)
         PARAMETERS2.append(("category", cat))
-        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=1)
+        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=2)
     ZALDATA.get_missing_pairings(num_threads=4)
     ZALDATA.save_to_csv()
     ZALDATA.fill_pairings()
-    #ZALDATA.get_missing_pairings()
     ZALDATA.save_to_csv()
-    ZALDATA = ZalandoDataset(csvfile="felpe_tshirt.csv", mode="r")
+    ZALDATA.download_images()
+    ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt", mode="r")
     
