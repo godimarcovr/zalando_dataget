@@ -265,5 +265,4 @@ if __name__ == "__main__":
     ZALDATA.fill_pairings()
     print(ZALDATA.count_dangling())
     ZALDATA.save_to_csv()
-    #FIXA LE IMMAGINI SBAGLIATE!
     

@@ -31,6 +31,18 @@ def get_nomi(catkeys):
 def get_nome(catkey):
     return get_nomi([catkey])[0]
 
+def has_parent_key(childkey, parentkey):
+    return CAT_VOCAB[childkey]['parentKey'] == parentkey
+
+def has_parent_name(childkey, parentname):
+    if CAT_VOCAB[childkey]['parentKey'] == "":
+        return False
+    return CAT_VOCAB[CAT_VOCAB[childkey]['parentKey']]['name'] == parentname
+
+def has_ancestor_name(childkey, ancestorname):
+    parentkey = CAT_VOCAB[childkey]['parentKey']
+    return has_parent_name(childkey, ancestorname) or has_ancestor_name(parentkey, ancestorname)
+
 
 if __name__ == "__main__":
     ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt", mode="r")
@@ -47,6 +59,9 @@ if __name__ == "__main__":
             #tshirt_top_count += len(attributes['pairings'])
     maglieria_felpe_pairing_stats = {}
     for maglieria_felpe_pairing in maglieria_felpe_pairings:
+        #potrei ancora fare un controllo dell'ancestorname e assicurarmi di non contare tshirt e Top
+        # negli abbinamenti con le felpe, e viceversa nel prossimo ciclo, ha senso?
+        #if has_ancestormaglieria_felpe_pairing
         for cat_key in ZALDATA.dataset[maglieria_felpe_pairing]['categoryKeys']:
             if get_nome(cat_key) not in maglieria_felpe_pairing_stats:
                 maglieria_felpe_pairing_stats[get_nome(cat_key)] = 0
@@ -63,12 +78,31 @@ if __name__ == "__main__":
     fout = open("report.txt", "w")
     fout.write("Maglieria & Felpe ("+str(len(maglieria_felpe_pairings))+"): \n")
     for cat_name, cat_count in mfps_sorted:
-        fout.write(cat_name+":"+str(cat_count)+"("
-                   +str(cat_count/len(maglieria_felpe_pairings))+")\n")
+        fout.write(cat_name+":"+str(cat_count)+"\n")
     fout.write("\n**********************************\n")
     fout.write("T-shirt & Top ("+str(len(tshirt_top_pairings))+"): \n")
     for cat_name, cat_count in ttps_sorted:
-        fout.write(cat_name+":"+str(cat_count)+"("
-                   +str(cat_count/len(tshirt_top_pairings))+")\n")
+        fout.write(cat_name+":"+str(cat_count)+"\n")
+    fout.write("\n**********************************\n")
+    fout.write("Best common: \n")
+    all_cat_names = maglieria_felpe_pairing_stats.keys() | tshirt_top_pairing_stats.keys()
+    common = {}
+    disjoint = {}
+    for cat_name in all_cat_names:
+        num_mf = 0 if cat_name not in maglieria_felpe_pairing_stats else maglieria_felpe_pairing_stats[cat_name]
+        num_tt = 0 if cat_name not in tshirt_top_pairing_stats else tshirt_top_pairing_stats[cat_name]
+        somma = num_mf + num_tt
+        differenza = abs(num_mf - num_tt) + 1
+        minimo = min(num_mf, num_tt) + 1
+        #fout.write(cat_name+":"+str(somma/differenza)+"\n")
+        common[cat_name] = somma/differenza
+        disjoint[cat_name] = somma/minimo
+    common_sorted = sorted(common.items(), key=operator.itemgetter(1), reverse=True)
+    disjoint_sorted = sorted(disjoint.items(), key=operator.itemgetter(1), reverse=True)
+    for cat_name, cat_value in common_sorted:
+        fout.write(cat_name+":"+str(cat_value)+"\n")
+    fout.write("\n**********************************\n")
+    fout.write("Best disjoint: \n")
+    for cat_name, cat_value in disjoint_sorted:
+        fout.write(cat_name+":"+str(cat_value)+"\n")
     fout.close()
-
