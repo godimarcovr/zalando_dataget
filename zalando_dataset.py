@@ -43,6 +43,7 @@ class ZalandoDataset:
         fin.close()
 
     def add_articles_to_dataset(self, parameters, page_limit=10):
+        assert len(parameters) > 0
         zaldown = ZalandoDownloader()
         zaldown.parameters = parameters
         zaldown.section = "articles"
@@ -81,6 +82,10 @@ class ZalandoDataset:
                 articles = res["content"]
                 for article in articles:
                     if article["id"] not in self.dataset:
+                        #se c'é PACK nel nome, vuol dire che sono più vestiti insieme e 
+                        #quindi la foto non va più bene
+                        if "pack" in article["name"].lower():
+                            continue
                         self.dataset[article["id"]] = {}
                         for col in self.colnames:
                             if col == "largeHdUrl":
@@ -127,7 +132,10 @@ class ZalandoDataset:
         art_ids = []
         for art_id, attributes in self.dataset.items():
             pairings = attributes["pairings"]
-            art_ids.extend(pairings)
+            for pairing in pairings:
+                if pairing not in self.dataset:
+                    art_ids.append(pairing)
+            #art_ids.union(set(art_ids))
         art_ids = list(set(art_ids))
         parameters = []
         count = 0
@@ -138,7 +146,20 @@ class ZalandoDataset:
                 self.add_articles_to_dataset(parameters, page_limit=-1)
                 count = 0
                 parameters = []
-        self.add_articles_to_dataset(parameters, page_limit=-1)
+        if len(parameters) > 0:
+            self.add_articles_to_dataset(parameters, page_limit=-1)
+
+    def count_dangling(self):
+        assert "pairings" in self.colnames
+        count = 0
+        for art_id, attributes in self.dataset.items():
+            pairings = attributes["pairings"]
+            #art_ids.extend(pairings)
+            for pairing in pairings:
+                if pairing not in self.dataset:
+                    count += 1
+        return count
+
 
     def get_missing_pairings(self, lim=float('inf'), num_threads=1):
         #threads
@@ -217,6 +238,7 @@ class ScrapeThread(threading.Thread):
             #metterci print di fine raccolta con numero thread
 
 if __name__ == "__main__":
+    '''
     ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt")
     PARAMETERS = []
     #CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
@@ -237,5 +259,11 @@ if __name__ == "__main__":
     ZALDATA.fill_pairings()
     ZALDATA.save_to_csv()
     ZALDATA.download_images()
+    '''
     ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt", mode="r")
+    print(ZALDATA.count_dangling())
+    ZALDATA.fill_pairings()
+    print(ZALDATA.count_dangling())
+    ZALDATA.save_to_csv()
+    #FIXA LE IMMAGINI SBAGLIATE!
     
