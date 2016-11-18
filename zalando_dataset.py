@@ -1,8 +1,8 @@
-from zalando_downloader import *
 from queue import Queue, Empty
 import random
 import os
 import urllib.request
+from zalando_downloader import *
 
 class ZalandoDataset:
 

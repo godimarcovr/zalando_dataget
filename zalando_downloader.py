@@ -1,14 +1,14 @@
 from urllib.parse import urlparse
-import requests as req
-from selenium import webdriver
+
 #from recotest import *
 #from selenium.webdriver.common.keys import Keys
-from selenium.webdriver import ActionChains
+
 #from selenium.webdriver import DesiredCapabilities
 import threading
-from timeoutcontext import timeout
 from selenium.common.exceptions import TimeoutException
-from retrying import retry
+import requests as req
+from selenium import webdriver
+from selenium.webdriver import ActionChains
 
 class ZalandoDownloader:
 
