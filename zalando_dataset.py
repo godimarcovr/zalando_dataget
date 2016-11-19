@@ -4,6 +4,9 @@ import random
 import os
 import urllib.request
 from zalando_downloader import *
+import httplib2
+
+
 
 class ZalandoDataset:
 
@@ -241,11 +244,15 @@ class ZalandoDataset:
                         urllib.request.urlretrieve(attributes['largeHdUrl']
                                                    , filename=self.datasetpath+"/"+art_id+".jpg")
                         print("Downloaded "+art_id+".jpg....")
-                        keep = False
-                except ConnectionResetError:
+                    keep = False
+                except (ConnectionResetError, httplib2.http.client.IncompleteRead):
                     print("Il server mi ha chiuso fuori, riprovo tra due secondi...")
-                    os.remove(self.datasetpath+"/"+art_id+".jpg")
+                    try:
+                        os.remove(self.datasetpath+"/"+art_id+".jpg")
+                    except FileNotFoundError:
+                        pass
                     sleep(2)
+        print("Finito il download.")
 
 
 class ScrapeThread(threading.Thread):
@@ -299,4 +306,4 @@ if __name__ == "__main__":
     '''
     ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt", mode="r")
     ZALDATA.save_to_csv()
-    
+    ZALDATA.download_images()
