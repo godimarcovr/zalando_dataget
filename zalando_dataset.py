@@ -1,4 +1,5 @@
 from queue import Queue, Empty
+from time import sleep
 import random
 import os
 import urllib.request
@@ -42,7 +43,7 @@ class ZalandoDataset:
                     self.dataset[art_id][self.colnames[i]] = field
         fin.close()
 
-    def add_articles_to_dataset(self, parameters, page_limit=10):
+    def add_articles_to_dataset(self, parameters, page_limit=10, getpacks=False):
         assert len(parameters) > 0
         zaldown = ZalandoDownloader()
         zaldown.parameters = parameters
@@ -73,18 +74,22 @@ class ZalandoDataset:
             num_pages = res['totalPages']
         else:
             num_pages = page_limit if res['totalPages'] > page_limit else res['totalPages']
+        packs = []
         for i in range(num_pages):
             if i > 0:
-                zaldown.parameters = parameters
+                zaldown.parameters = parameters[:]
                 zaldown.parameters.append(("page", str(i+1)))
                 res = zaldown.get_json()
             if "content" in res:
                 articles = res["content"]
                 for article in articles:
                     if article["id"] not in self.dataset:
-                        #se c'é PACK nel nome, vuol dire che sono più vestiti insieme e 
+                        #se c'é PACK nel nome, vuol dire che sono più vestiti insieme e
                         #quindi la foto non va più bene
                         if "pack" in article["name"].lower():
+                            print(article["id"]+" è un pack, rimuovi dal dataset!")
+                            if getpacks:
+                                packs.append(article["id"])
                             continue
                         self.dataset[article["id"]] = {}
                         for col in self.colnames:
@@ -105,6 +110,11 @@ class ZalandoDataset:
                                 #        self.dataset[article["id"]][col].extend(recos)
                             elif col != "id":
                                 self.dataset[article["id"]][col] = article[col]
+        if getpacks:
+            return packs
+
+
+
     def save_to_csv(self):
         fout = open(self.datasetpath+"/"+self.datasetname+".csv", "w")
         for art_id, attributes in self.dataset.items():
@@ -127,7 +137,7 @@ class ZalandoDataset:
 
         fout.close()
 
-    def fill_pairings(self):
+    def fill_pairings(self, clean_packs=True):
         assert "pairings" in self.colnames
         art_ids = []
         for art_id, attributes in self.dataset.items():
@@ -139,15 +149,29 @@ class ZalandoDataset:
         art_ids = list(set(art_ids))
         parameters = []
         count = 0
+        pack_ids = set([])
         for art_id in art_ids:
             parameters.append(("articleId", art_id))
             count += 1
             if count >= 50:
-                self.add_articles_to_dataset(parameters, page_limit=-1)
+                retry = True
+                while retry:
+                    try:
+                        pack_ids.update(self.add_articles_to_dataset(parameters, page_limit=-1,
+                                                                     getpacks=clean_packs))
+                        retry = False
+                    except ConnectionResetError:
+                        print("Il server mi ha chiuso fuori, riprovo tra due secondi...")
+                        sleep(2)
                 count = 0
                 parameters = []
         if len(parameters) > 0:
-            self.add_articles_to_dataset(parameters, page_limit=-1)
+            pack_ids.update(self.add_articles_to_dataset(parameters, page_limit=-1,
+                                                         getpacks=clean_packs))
+        if clean_packs:
+            for art_id, attributes in self.dataset.items():
+                pairings = attributes["pairings"]
+                attributes["pairings"] = [x for x in pairings if x not in pack_ids]
 
     def count_dangling(self):
         assert "pairings" in self.colnames
@@ -209,11 +233,19 @@ class ZalandoDataset:
 
     def download_images(self):
         for art_id, attributes in self.dataset.items():
-            if not os.path.exists(self.datasetpath+"/"+art_id+".jpg"):
-                print("Downloading "+art_id+".jpg....")
-                urllib.request.urlretrieve(attributes['largeHdUrl']
-                                           , filename=self.datasetpath+"/"+art_id+".jpg")
-                print("Downloaded "+art_id+".jpg....")
+            keep = True
+            while keep:
+                try:
+                    if not os.path.exists(self.datasetpath+"/"+art_id+".jpg"):
+                        print("Downloading "+art_id+".jpg....")
+                        urllib.request.urlretrieve(attributes['largeHdUrl']
+                                                   , filename=self.datasetpath+"/"+art_id+".jpg")
+                        print("Downloaded "+art_id+".jpg....")
+                        keep = False
+                except ConnectionResetError:
+                    print("Il server mi ha chiuso fuori, riprovo tra due secondi...")
+                    os.remove(self.datasetpath+"/"+art_id+".jpg")
+                    sleep(2)
 
 
 class ScrapeThread(threading.Thread):
@@ -254,15 +286,17 @@ if __name__ == "__main__":
         PARAMETERS2.extend(PARAMETERS)
         PARAMETERS2.append(("category", cat))
         ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=2)
+    ZALDATA.save_to_csv()
     ZALDATA.get_missing_pairings(num_threads=4)
     ZALDATA.save_to_csv()
+    print(ZALDATA.count_dangling())
+
+    print(ZALDATA.count_dangling())
     ZALDATA.fill_pairings()
+    print(ZALDATA.count_dangling())
     ZALDATA.save_to_csv()
     ZALDATA.download_images()
     '''
     ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt", mode="r")
-    print(ZALDATA.count_dangling())
-    ZALDATA.fill_pairings()
-    print(ZALDATA.count_dangling())
     ZALDATA.save_to_csv()
     
