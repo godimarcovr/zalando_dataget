@@ -5,7 +5,7 @@ import os
 import urllib.request
 from zalando_downloader import *
 import httplib2
-
+import zalando_cat_vocab as zcv
 
 
 class ZalandoDataset:
@@ -25,6 +25,8 @@ class ZalandoDataset:
         elif mode == "w":
             fout = open(self.datasetpath+"/"+self.datasetname+".csv", "w")
             fout.close()
+        zcv.load_cache()
+        zcv.load_main_cat_names()
 
     def load_input(self, inf):
         fin = open(inf)
@@ -46,27 +48,13 @@ class ZalandoDataset:
                     self.dataset[art_id][self.colnames[i]] = field
         fin.close()
 
-    def add_articles_to_dataset(self, parameters, page_limit=10, getpacks=False):
+    def add_articles_to_dataset(self, parameters, page_limit=10
+                                , getpacks=False, filter_cat_name=[]):
         assert len(parameters) > 0
         zaldown = ZalandoDownloader()
         zaldown.parameters = parameters
         zaldown.section = "articles"
         assert len(parameters) < 150
-        '''
-        #per evitare errori per il link troppo lungo, spezzo in più richieste
-        #per ora evito stando attento a come lo uso
-        non_articleid_params = []
-        articleid_params = []
-        pagesize = 20
-        for param in zaldown.parameters:
-            if param[0] == "articleId":
-                articleid_params.append(param)
-            else:
-                non_articleid_params.append(param)
-                if param[0] == "pageSize":
-                    pagesize = int(param[1])
-        articles_to_elab = pagesize * page_limit
-        '''
         res = zaldown.get_json()
         if "errors" in res:
             print("Errore nel JSON")
@@ -94,6 +82,10 @@ class ZalandoDataset:
                             if getpacks:
                                 packs.append(article["id"])
                             continue
+                        if filter_cat_name != [] and type(filter_cat_name) is set:
+                            # se non c'è un'intersezione, ossia è rifiutato dal filtro
+                            if not set(zcv.get_nomi(article["categoryKeys"])) & filter_cat_name:
+                                continue
                         self.dataset[article["id"]] = {}
                         for col in self.colnames:
                             if col == "largeHdUrl":
@@ -106,11 +98,15 @@ class ZalandoDataset:
                                         break
                             elif col == "pairings":
                                 self.dataset[article["id"]][col] = []
-                                #if get_pairings:
-                                #    recoss = zaldown.get_recos([article["shopUrl"]])
-                                #    self.dataset[article["id"]][col] = []
-                                #    for recos in recoss:
-                                #        self.dataset[article["id"]][col].extend(recos)
+                            elif col == "catname":
+                                self.dataset[article["id"]][col] = ""
+                                for cat_key in article["categoryKeys"]:
+                                    zcv.add_cat(cat_key)
+                                    if zcv.get_nome(cat_key) in zcv.MAIN_CAT_NAMES:
+                                        self.dataset[article["id"]][col] = zcv.get_nome(cat_key)
+                                #if self.dataset[article["id"]][col] == "":
+                                #    print("Attenzione, questo articolo ("+article["id"]+") non ha main_cat")
+                                #    print(article["categoryKeys"])
                             elif col != "id":
                                 self.dataset[article["id"]][col] = article[col]
         if getpacks:
@@ -135,7 +131,10 @@ class ZalandoDataset:
                             to_write += ","
                     to_write += "]"
                 else:
-                    to_write += attributes[col]
+                    if col in attributes:
+                        to_write += attributes[col]
+                    else:
+                        pass
             fout.write(to_write + "\n")
 
         fout.close()
@@ -143,6 +142,7 @@ class ZalandoDataset:
     def fill_pairings(self, clean_packs=True):
         assert "pairings" in self.colnames
         art_ids = []
+        use_main_cat_names = "catname" in self.colnames
         for art_id, attributes in self.dataset.items():
             pairings = attributes["pairings"]
             for pairing in pairings:
@@ -161,7 +161,7 @@ class ZalandoDataset:
                 while retry:
                     try:
                         pack_ids.update(self.add_articles_to_dataset(parameters, page_limit=-1,
-                                                                     getpacks=clean_packs))
+                                        getpacks=clean_packs, filter_cat_name=zcv.MAIN_CAT_NAMES if use_main_cat_names else []))
                         retry = False
                     except ConnectionResetError:
                         print("Il server mi ha chiuso fuori, riprovo tra due secondi...")
@@ -170,7 +170,7 @@ class ZalandoDataset:
                 parameters = []
         if len(parameters) > 0:
             pack_ids.update(self.add_articles_to_dataset(parameters, page_limit=-1,
-                                                         getpacks=clean_packs))
+                            getpacks=clean_packs, filter_cat_name=zcv.MAIN_CAT_NAMES if use_main_cat_names else []))
         if clean_packs:
             for art_id, attributes in self.dataset.items():
                 pairings = attributes["pairings"]
@@ -277,14 +277,15 @@ class ScrapeThread(threading.Thread):
             #metterci print di fine raccolta con numero thread
 
 if __name__ == "__main__":
-    '''
-    ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt")
+    ZALDATA = ZalandoDataset(datasetpath="datasets/smallest_cat_test"
+                             , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
+                                        , "pairings", "catname"])
     PARAMETERS = []
     #CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
     #        , "premium-maglieria-felpe-donna"
     #        , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
     #PARAMETERS.append(("sort", "popularity"))
-    #PARAMETERS.append(("pageSize", "1"))
+    PARAMETERS.append(("pageSize", "5"))
     CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
             , "premium-maglieria-felpe-donna"
             , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
@@ -292,18 +293,18 @@ if __name__ == "__main__":
         PARAMETERS2 = []
         PARAMETERS2.extend(PARAMETERS)
         PARAMETERS2.append(("category", cat))
-        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=2)
+        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=1)
     ZALDATA.save_to_csv()
     ZALDATA.get_missing_pairings(num_threads=4)
     ZALDATA.save_to_csv()
     print(ZALDATA.count_dangling())
-
-    print(ZALDATA.count_dangling())
     ZALDATA.fill_pairings()
     print(ZALDATA.count_dangling())
     ZALDATA.save_to_csv()
-    ZALDATA.download_images()
+    #ZALDATA.download_images()
     '''
     ZALDATA = ZalandoDataset(datasetpath="datasets/felpe_tshirt", mode="r")
     ZALDATA.save_to_csv()
+    zcv.save_cache()
     ZALDATA.download_images()
+    '''

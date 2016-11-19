@@ -5,22 +5,24 @@ import pickle
 
 CAT_VOCAB = {}
 NAME_FILTER = set([])
+MAIN_CAT_NAMES = set([])
 
-ZALDOWN = ZalandoDownloader()
-ZALDOWN.section = "categories"
+CAT_ZALDOWN = ZalandoDownloader()
+CAT_ZALDOWN.section = "categories"
 
 def add_cat(catkey):
-    ZALDOWN.parameters = []
-    ZALDOWN.parameters.append(("key", catkey))
-    res = ZALDOWN.get_json()
-    if "content" in res and len(res['content']) == 1:
-        cat = res['content'][0]
-        assert cat['key'] == catkey
-        CAT_VOCAB[catkey] = {}
-        CAT_VOCAB[catkey]['name'] = cat['name']
-        CAT_VOCAB[catkey]['key'] = cat['key']
-        CAT_VOCAB[catkey]['parentKey'] = cat['parentKey'] if 'parentKey' in cat else ""
-        CAT_VOCAB[catkey]['childKeys'] = cat['childKeys'] if 'childKeys' in cat else []
+    if catkey not in CAT_VOCAB:
+        CAT_ZALDOWN.parameters = []
+        CAT_ZALDOWN.parameters.append(("key", catkey))
+        res = CAT_ZALDOWN.get_json()
+        if "content" in res and len(res['content']) == 1:
+            cat = res['content'][0]
+            assert cat['key'] == catkey
+            CAT_VOCAB[catkey] = {}
+            CAT_VOCAB[catkey]['name'] = cat['name']
+            CAT_VOCAB[catkey]['key'] = cat['key']
+            CAT_VOCAB[catkey]['parentKey'] = cat['parentKey'] if 'parentKey' in cat else ""
+            CAT_VOCAB[catkey]['childKeys'] = cat['childKeys'] if 'childKeys' in cat else []
 
 def save_cache(cachefilename="defaultcache"):
     with open(cachefilename+'.pkl', 'wb') as cachefile:
@@ -32,6 +34,16 @@ def load_cache(cachefilename="defaultcache"):
             CAT_VOCAB.update(pickle.load(cachefile))
     except FileNotFoundError:
         pass
+
+def load_main_cat_names(maincatname="defaultmaincatnames.txt"):
+    lista_main_cat_names = []
+    try:
+        with open(maincatname, 'r') as maincatfile:
+            for line in maincatfile:
+                lista_main_cat_names.append(line.rstrip())
+    except FileNotFoundError:
+        pass
+    MAIN_CAT_NAMES.update(lista_main_cat_names)
 
 def load_filter(filtername="defaultfilter.txt"):
     lista_filtri = []
@@ -46,8 +58,7 @@ def load_filter(filtername="defaultfilter.txt"):
 def get_nomi(catkeys):
     catnames = []
     for catkey in catkeys:
-        if catkey not in CAT_VOCAB:
-            add_cat(catkey)
+        add_cat(catkey)
         catnames.append(CAT_VOCAB[catkey]['name'])
     return catnames
 
