@@ -12,8 +12,8 @@ from selenium.webdriver import ActionChains
 
 class ZalandoDownloader:
 
-    def __init__(self):
-        self.header = {"Accept-Language":"it-IT", "Accept-Encoding":"gzip"}
+    def __init__(self, language="it-IT"):
+        self.header = {"Accept-Language":language, "Accept-Encoding":"gzip"}
         self.baseurl = "https://api.zalando.com/"
         self.parameters = []
         self.section = ""

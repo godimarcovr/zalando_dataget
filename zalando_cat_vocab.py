@@ -10,8 +10,11 @@ MAIN_CAT_NAMES = set([])
 CAT_ZALDOWN = ZalandoDownloader()
 CAT_ZALDOWN.section = "categories"
 
-def add_cat(catkey):
+def add_cat(catkey, language="it-IT"):
     if catkey not in CAT_VOCAB:
+        global CAT_ZALDOWN
+        CAT_ZALDOWN = ZalandoDownloader(language=language)
+        CAT_ZALDOWN.section = "categories"
         CAT_ZALDOWN.parameters = []
         CAT_ZALDOWN.parameters.append(("key", catkey))
         res = CAT_ZALDOWN.get_json()
@@ -55,15 +58,17 @@ def load_filter(filtername="defaultfilter.txt"):
         pass
     NAME_FILTER.update(lista_filtri)
 
-def get_nomi(catkeys):
+def get_nomi(catkeys, language="it-IT"):
     catnames = []
     for catkey in catkeys:
-        add_cat(catkey)
-        catnames.append(CAT_VOCAB[catkey]['name'])
+        add_cat(catkey, language="it-IT")
+        if catkey in CAT_VOCAB:
+            catnames.append(CAT_VOCAB[catkey]['name'])
     return catnames
 
 def get_nome(catkey):
-    return get_nomi([catkey])[0]
+    toret = get_nomi([catkey])
+    return toret[0] if len(toret) > 0 else ""
 
 def has_parent_key(childkey, parentkey):
     return CAT_VOCAB[childkey]['parentKey'] == parentkey

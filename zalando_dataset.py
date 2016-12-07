@@ -49,10 +49,10 @@ class ZalandoDataset:
         fin.close()
 
     def add_articles_to_dataset(self, parameters, page_limit=10
-                                , getpacks=False, filter_cat_name=[]):
+                                , getpacks=False, filter_cat_name=[], language="it-IT"):
         assert len(parameters) > 0
         get_dangling = getpacks or (len(filter_cat_name) > 0)
-        zaldown = ZalandoDownloader()
+        zaldown = ZalandoDownloader(language=language)
         zaldown.parameters = parameters
         zaldown.section = "articles"
         assert len(parameters) < 150
@@ -85,7 +85,7 @@ class ZalandoDataset:
                             continue
                         if filter_cat_name != [] and type(filter_cat_name) is set:
                             # se non c'è un'intersezione, ossia è rifiutato dal filtro
-                            if not set(zcv.get_nomi(article["categoryKeys"])) & filter_cat_name:
+                            if not set(zcv.get_nomi(article["categoryKeys"]), language=language) & filter_cat_name:
                                 packs.append(article["id"])
                                 continue
                         self.dataset[article["id"]] = {}
@@ -106,8 +106,10 @@ class ZalandoDataset:
                                     zcv.add_cat(cat_key)
                                     if zcv.get_nome(cat_key) in zcv.MAIN_CAT_NAMES:
                                         self.dataset[article["id"]][col] = zcv.get_nome(cat_key)
+                                        break
                                 #if self.dataset[article["id"]][col] == "":
-                                #    print("Attenzione, questo articolo ("+article["id"]+") non ha main_cat")
+                                #    print("Attenzione, questo articolo ("+article["id"]+") non ha
+                                # main_cat")
                                 #    print(article["categoryKeys"])
                             elif col != "id":
                                 self.dataset[article["id"]][col] = article[col]
@@ -192,7 +194,7 @@ class ZalandoDataset:
         return count
 
 
-    def get_missing_pairings(self, lim=float('inf'), num_threads=1):
+    def get_missing_pairings(self, lim=float('inf'), num_threads=1, remove_not_paired=False):
         #threads
         assert "pairings" in self.colnames and "shopUrl" in self.colnames
         count = 0
@@ -229,6 +231,8 @@ class ZalandoDataset:
         for i in threads:
             i.join()
             pairings.extend(i.result)
+        
+        arts_to_remove = []
 
         for art_id, pairs in pairings:
             #zaldown = ZalandoDownloader()
@@ -236,6 +240,15 @@ class ZalandoDataset:
             #for recos in recoss:
             #    self.dataset[art_id]["pairings"].extend(recos)
             self.dataset[art_id]["pairings"] = pairs
+            if remove_not_paired:
+                if len(pairs) == 0:
+                    arts_to_remove.append(art_id)
+        if remove_not_paired:
+            for art_id_to_rem in arts_to_remove:
+                del self.dataset[art_id_to_rem]
+                #devo rimuovere anche tutti i riferimenti ad esso!
+                for art_id, att in self.dataset.items():
+                    att["pairings"] = [x for x in att["pairings"] if not x == art_id_to_rem]
         return count
 
     def download_images(self):
@@ -258,6 +271,14 @@ class ZalandoDataset:
                     sleep(2)
         print("Finito il download.")
 
+    def split_into_new_dataset(self, new_dataset_path="default2", new_dataset_part=0.5):
+        newds = ZalandoDataset(datasetpath=new_dataset_path, columns=self.colnames)
+        new_keys = random.sample(list(self.dataset.keys()), int(len(self.dataset)*new_dataset_part))
+        for new_key in new_keys:
+            newds.dataset[new_key] = self.dataset[new_key]
+            del self.dataset[new_key]
+        newds.save_to_csv()
+
 
 class ScrapeThread(threading.Thread):
     def __init__(self, urlqueue):
@@ -278,19 +299,18 @@ class ScrapeThread(threading.Thread):
             assert len(recoss) <= 1
             for recos in recoss:
                 self.result.append((art_id, recos))
+            if len(recoss) == 0:
+                self.result.append((art_id, []))
             #metterci print di fine raccolta con numero thread
 
 if __name__ == "__main__":
     '''
-    ZALDATA = ZalandoDataset(datasetpath="datasets/maincatnametest"
+    ZALDATA = ZalandoDataset(datasetpath="datasets/small_FT_train"
                              , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
                                         , "pairings", "catname"])
     PARAMETERS = []
-    #CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
-    #        , "premium-maglieria-felpe-donna"
-    #        , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
     #PARAMETERS.append(("sort", "popularity"))
-    PARAMETERS.append(("pageSize", "5"))
+    PARAMETERS.append(("pageSize", "10"))
     CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
             , "premium-maglieria-felpe-donna"
             , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
@@ -302,21 +322,31 @@ if __name__ == "__main__":
         ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=1)
     ZALDATA.save_to_csv()
     ZALDATA.get_missing_pairings(num_threads=4)
+    ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=True)
     ZALDATA.save_to_csv()
+    zcv.save_cache()
+    ZALDATA.split_into_new_dataset(new_dataset_path="datasets/small_FT_test")
+    ZALDATA.save_to_csv()
+
     print(ZALDATA.count_dangling())
     ZALDATA.fill_pairings()
     print(ZALDATA.count_dangling())
     ZALDATA.save_to_csv()
     #ZALDATA.download_images()
-    zcv.save_cache()
     '''
-    ZALDATA = ZalandoDataset(datasetpath="datasets/maincatnametest"
+    ZALDATA = ZalandoDataset(datasetpath="datasets/small_FT_test"
                              , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
                                         , "pairings", "catname"], mode="r")
+    #ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=False)
+    #ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=True)
+    ZALDATA.save_to_csv()
     print(ZALDATA.count_dangling())
     ZALDATA.fill_pairings()
     print(ZALDATA.count_dangling())
     ZALDATA.save_to_csv()
     zcv.save_cache()
     ZALDATA.download_images()
-    
+    ZALDATA = ZalandoDataset(datasetpath="datasets/small_FT_train"
+                             , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
+                                        , "pairings", "catname"], mode="r")
+    ZALDATA.download_images()
