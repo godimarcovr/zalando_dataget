@@ -6,6 +6,7 @@ import urllib.request
 from zalando_downloader import *
 import httplib2
 import zalando_cat_vocab as zcv
+from shutil import copyfile
 
 
 class ZalandoDataset:
@@ -25,8 +26,8 @@ class ZalandoDataset:
         elif mode == "w":
             fout = open(self.datasetpath+"/"+self.datasetname+".csv", "w")
             fout.close()
-        zcv.load_cache()
-        zcv.load_main_cat_names()
+        # zcv.load_cache()
+        # zcv.load_main_cat_names()
 
     def load_input(self, inf):
         fin = open(inf)
@@ -49,9 +50,9 @@ class ZalandoDataset:
         fin.close()
 
     def add_articles_to_dataset(self, parameters, page_limit=10
-                                , getpacks=False, filter_cat_name=[], language="it-IT"):
+                                , getpacks=False, filter_cat_name=[], filter_nonpicture=False, language="it-IT"):
         assert len(parameters) > 0
-        get_dangling = getpacks or (len(filter_cat_name) > 0)
+        get_dangling = getpacks or (len(filter_cat_name) > 0) or filter_nonpicture
         zaldown = ZalandoDownloader(language=language)
         zaldown.parameters = parameters
         zaldown.section = "articles"
@@ -85,7 +86,7 @@ class ZalandoDataset:
                             continue
                         if filter_cat_name != [] and type(filter_cat_name) is set:
                             # se non c'è un'intersezione, ossia è rifiutato dal filtro
-                            if not set(zcv.get_nomi(article["categoryKeys"]), language=language) & filter_cat_name:
+                            if not set(zcv.get_nomi(article["categoryKeys"], language=language)) & filter_cat_name:
                                 packs.append(article["id"])
                                 continue
                         self.dataset[article["id"]] = {}
@@ -95,9 +96,14 @@ class ZalandoDataset:
                                 self.dataset[article["id"]][col] = ""
                                 for image in images:
                                     #if image["orderNumber"] == 1 and image['type'] == "NON_MODEL":
-                                    if image["orderNumber"] == 1:
+                                    #print(image['type'])
+                                    if image['type'] == "NON_MODEL" or image['type'] == "UNSPECIFIED":
                                         self.dataset[article["id"]][col] = image[col]
                                         break
+                                if self.dataset[article["id"]][col] == "":
+                                    if filter_nonpicture:
+                                        packs.append(article["id"])
+
                             elif col == "pairings":
                                 self.dataset[article["id"]][col] = []
                             elif col == "catname":
@@ -107,6 +113,8 @@ class ZalandoDataset:
                                     if zcv.get_nome(cat_key) in zcv.MAIN_CAT_NAMES:
                                         self.dataset[article["id"]][col] = zcv.get_nome(cat_key)
                                         break
+                                if self.dataset[article["id"]][col] == "":
+                                    pass
                                 #if self.dataset[article["id"]][col] == "":
                                 #    print("Attenzione, questo articolo ("+article["id"]+") non ha
                                 # main_cat")
@@ -114,6 +122,10 @@ class ZalandoDataset:
                             elif col != "id":
                                 self.dataset[article["id"]][col] = article[col]
         if get_dangling:
+            #nel caso voglia rimuovere vestiti che hanno problemi con le immagini, li tolgo da qua
+            for art_id in packs:
+                if art_id in self.dataset:
+                    del self.dataset[art_id]
             return packs
 
 
@@ -251,7 +263,7 @@ class ZalandoDataset:
                     att["pairings"] = [x for x in att["pairings"] if not x == art_id_to_rem]
         return count
 
-    def download_images(self):
+    def download_images(self, infolder_catname = False):
         for art_id, attributes in self.dataset.items():
             keep = True
             while keep:
@@ -260,6 +272,11 @@ class ZalandoDataset:
                         print("Downloading "+art_id+".jpg....")
                         urllib.request.urlretrieve(attributes['largeHdUrl']
                                                    , filename=self.datasetpath+"/"+art_id+".jpg")
+                        if infolder_catname:
+                            if not os.path.exists(self.datasetpath+"/"+attributes["catname"]):
+                                os.mkdir(self.datasetpath+"/"+attributes["catname"])
+                            copyfile(self.datasetpath+"/"+art_id+".jpg" \
+                                    , self.datasetpath+"/"+attributes["catname"]+"/"+art_id+".jpg")
                         print("Downloaded "+art_id+".jpg....")
                     keep = False
                 except (ConnectionResetError, httplib2.http.client.IncompleteRead):
@@ -269,6 +286,8 @@ class ZalandoDataset:
                     except FileNotFoundError:
                         pass
                     sleep(2)
+                except ValueError:
+                    pass
         print("Finito il download.")
 
     def split_into_new_dataset(self, new_dataset_path="default2", new_dataset_part=0.5):
@@ -304,49 +323,52 @@ class ScrapeThread(threading.Thread):
             #metterci print di fine raccolta con numero thread
 
 if __name__ == "__main__":
-    '''
-    ZALDATA = ZalandoDataset(datasetpath="datasets/small_FT_train"
+    zcv.load_cache()
+    zcv.load_main_cat_names("maincatnames_morespecific.txt")
+    ZALDATA = ZalandoDataset(datasetpath="datasets/balanced_specific_train"
                              , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
                                         , "pairings", "catname"])
     PARAMETERS = []
     #PARAMETERS.append(("sort", "popularity"))
-    PARAMETERS.append(("pageSize", "10"))
-    CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
-            , "premium-maglieria-felpe-donna"
-            , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
+    PARAMETERS.append(("pageSize", "20"))
+    # CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
+    #         , "premium-maglieria-felpe-donna"
+    #         , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
+    # CATS = ["jeans-donna", "camicie-donna", "pantaloni-donna", "maglieria-felpe-donna"
+    #         , "giacche-donna", "borse-donna", "cappelli-donna", "cappotti-donna"
+    #         , "cinture-donna", "foulard-sciarpe-donna", "gonne", "intimo-donna"
+    #         , "t-shirt-top-donna", "vestiti-donna"]
+    CATS = zcv.load_catkeys_from_namefile("maincatnames_morespecific.txt" \
+        , additionalparams=[("targetGroup", "WOMEN")])
     for cat in CATS:
         PARAMETERS2 = []
         PARAMETERS2.extend(PARAMETERS)
         PARAMETERS2.append(("category", cat))
         #so per certo che hanno una categoria main
-        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=1)
+        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=5, filter_nonpicture=True)
     ZALDATA.save_to_csv()
-    ZALDATA.get_missing_pairings(num_threads=4)
-    ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=True)
+    #ZALDATA.get_missing_pairings(num_threads=4)
+    #ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=True)
     ZALDATA.save_to_csv()
     zcv.save_cache()
-    ZALDATA.split_into_new_dataset(new_dataset_path="datasets/small_FT_test")
+    ZALDATA.split_into_new_dataset(new_dataset_path="datasets/balanced_specific_test")
     ZALDATA.save_to_csv()
 
     print(ZALDATA.count_dangling())
-    ZALDATA.fill_pairings()
+    #ZALDATA.fill_pairings()
     print(ZALDATA.count_dangling())
     ZALDATA.save_to_csv()
-    #ZALDATA.download_images()
-    '''
-    ZALDATA = ZalandoDataset(datasetpath="datasets/small_FT_test"
+    ZALDATA.download_images(infolder_catname = True)
+
+    ZALDATA = ZalandoDataset(datasetpath="datasets/balanced_specific_test"
                              , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
                                         , "pairings", "catname"], mode="r")
     #ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=False)
     #ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=True)
     ZALDATA.save_to_csv()
     print(ZALDATA.count_dangling())
-    ZALDATA.fill_pairings()
+    #ZALDATA.fill_pairings()
     print(ZALDATA.count_dangling())
     ZALDATA.save_to_csv()
     zcv.save_cache()
-    ZALDATA.download_images()
-    ZALDATA = ZalandoDataset(datasetpath="datasets/small_FT_train"
-                             , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
-                                        , "pairings", "catname"], mode="r")
-    ZALDATA.download_images()
+    ZALDATA.download_images(infolder_catname = True)
