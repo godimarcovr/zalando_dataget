@@ -50,7 +50,8 @@ class ZalandoDataset:
         fin.close()
 
     def add_articles_to_dataset(self, parameters, page_limit=10
-                                , getpacks=False, filter_cat_name=[], filter_nonpicture=False, language="it-IT"):
+                                , getpacks=False, filter_cat_name=[], filter_nonpicture=False
+                                , language="it-IT", howmanyarticles=0):
         assert len(parameters) > 0
         get_dangling = getpacks or (len(filter_cat_name) > 0) or filter_nonpicture
         zaldown = ZalandoDownloader(language=language)
@@ -67,13 +68,18 @@ class ZalandoDataset:
             num_pages = res['totalPages']
         else:
             num_pages = page_limit if res['totalPages'] > page_limit else res['totalPages']
+        
         packs = []
+        starting_articles = len(self.dataset)
         for i in range(num_pages):
             if i > 0:
                 zaldown.parameters = parameters[:]
                 zaldown.parameters.append(("page", str(i+1)))
                 res = zaldown.get_json()
             if "content" in res:
+                if howmanyarticles > 0:
+                    if (len(self.dataset) - starting_articles) >= howmanyarticles:
+                        break
                 articles = res["content"]
                 for article in articles:
                     if article["id"] not in self.dataset:
@@ -323,14 +329,17 @@ class ScrapeThread(threading.Thread):
             #metterci print di fine raccolta con numero thread
 
 if __name__ == "__main__":
+    TRSET_NAME = "forNN_train"
+    TESET_NAME = "forNN_test"
+
     zcv.load_cache()
     zcv.load_main_cat_names("maincatnames_morespecific.txt")
-    ZALDATA = ZalandoDataset(datasetpath="datasets/balanced_specific_train"
+    ZALDATA = ZalandoDataset(datasetpath="datasets/"+TRSET_NAME
                              , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
                                         , "pairings", "catname"])
     PARAMETERS = []
     #PARAMETERS.append(("sort", "popularity"))
-    PARAMETERS.append(("pageSize", "20"))
+    PARAMETERS.append(("pageSize", "10"))
     # CATS = ["promo-pullover-cardigan-donna", "maglieria-felpe-donna"
     #         , "premium-maglieria-felpe-donna"
     #         , "promo-t-shirt-top-donna", "t-shirt-top-donna", "premium-t-shirt-top-donna"]
@@ -340,18 +349,24 @@ if __name__ == "__main__":
     #         , "t-shirt-top-donna", "vestiti-donna"]
     CATS = zcv.load_catkeys_from_namefile("maincatnames_morespecific.txt" \
         , additionalparams=[("targetGroup", "WOMEN")])
+    CATS.append("promo-calzini-donna")
+    CATS.append("calzini-sport-donna")
+    clothescount = 0
     for cat in CATS:
         PARAMETERS2 = []
         PARAMETERS2.extend(PARAMETERS)
         PARAMETERS2.append(("category", cat))
         #so per certo che hanno una categoria main
-        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=5, filter_nonpicture=True)
+        ZALDATA.add_articles_to_dataset(PARAMETERS2, page_limit=-1
+                                        , filter_nonpicture=True, howmanyarticles=400)
+        print(str(len(ZALDATA.dataset) - clothescount)+" nuovi vestiti per la categoria "+cat)
+        clothescount = len(ZALDATA.dataset)
     ZALDATA.save_to_csv()
     #ZALDATA.get_missing_pairings(num_threads=4)
     #ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=True)
     ZALDATA.save_to_csv()
     zcv.save_cache()
-    ZALDATA.split_into_new_dataset(new_dataset_path="datasets/balanced_specific_test")
+    ZALDATA.split_into_new_dataset(new_dataset_path="datasets/"+TESET_NAME)
     ZALDATA.save_to_csv()
 
     print(ZALDATA.count_dangling())
@@ -360,7 +375,7 @@ if __name__ == "__main__":
     ZALDATA.save_to_csv()
     ZALDATA.download_images(infolder_catname = True)
 
-    ZALDATA = ZalandoDataset(datasetpath="datasets/balanced_specific_test"
+    ZALDATA = ZalandoDataset(datasetpath="datasets/"+TESET_NAME
                              , columns=["id", "name", "shopUrl", "categoryKeys", "largeHdUrl"
                                         , "pairings", "catname"], mode="r")
     #ZALDATA.get_missing_pairings(num_threads=4, remove_not_paired=False)
